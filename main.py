@@ -73,14 +73,18 @@ def process_properties_column(df):
 
   properties_dicts = df['properties'].apply(safe_json_loads)
   properties_df = pd.json_normalize(properties_dicts)
-  properties_df = properties_df.drop(columns=['distinct_id'])
+  properties_df = properties_df.drop(columns=['distinct_id', 'session_id', 'window_id'])
   properties_df = properties_df.rename(columns=lambda x: x.replace('$', ''))
 
   return pd.concat([df, properties_df], axis=1).drop(columns=['properties'])
 
 
 def display_data_with_streamlit(df):
-  # Displaying the DataFrame in Streamlit
+  # Remove or debug duplicate columns
+  df = df.loc[:,~df.columns.duplicated()]
+  # Or for debugging what the duplicates are:
+  duplicate_cols = df.columns[df.columns.duplicated()].unique()
+  print(f"Duplicate Columns (if any): {duplicate_cols}")
   st.title('PostHog Analytics Dashboard')
   st.write("Here's our raw data fetched and processed:")
   st.dataframe(df)
@@ -97,12 +101,18 @@ def fetch_and_process_sheet_data(client):
   df = pd.DataFrame(data)
   df.columns = df.iloc[0]
   df = df.iloc[1:]
+  df.columns = [col.replace('$', '') for col in df.columns]
+  df.columns = [col.replace('.', '') for col in df.columns]
+  df = df.map(lambda x: x.replace('$', ''))
+  df = df.loc[:,~df.columns.duplicated()] 
   df.reset_index(drop=True, inplace=True)
   return process_properties_column(df)
 
 
   # Function to map pandas data types to SQL data types
-def generate_create_table_statement(df, table_name="analytics_data"):
+def generate_create_table_statement(df, table_name="event_data"):
+  sanitized_columns = df.columns.str.replace('.', '__', regex=False)
+  df.columns = sanitized_columns
   # Function to map pandas data types to SQL data types
   def pandas_type_to_sql(pandas_type):
     if pandas_type == 'object':
@@ -123,9 +133,25 @@ def generate_create_table_statement(df, table_name="analytics_data"):
       f"{col} {pandas_type_to_sql(dtype)}" for col, dtype in df.dtypes.items()
   ])
   create_table_stmt = f"CREATE TABLE {table_name} ({column_definitions});"
-
   return create_table_stmt
 
+def data_to_duckdb(df, table_name="event_data"): 
+  con = duckdb.connect(database=':memory:', read_only=False)
+
+  drop_table_query = f"DROP TABLE IF EXISTS {table_name};"
+  con.execute(drop_table_query)
+
+  # Execute SQL queries
+  create_table_statement = generate_create_table_statement(df)
+  con.execute(create_table_statement)
+  # Preparing and executing the INSERT statements from DataFrame
+  placeholders = ", ".join(["?" for _ in range(len(df.columns))])
+  insert_query = f"INSERT INTO {table_name} VALUES ({placeholders})"
+  for row in df.itertuples(index=False, name=None):
+    con.execute(insert_query, list(row))
+
+  # Fetching all data to verify insertion
+  all_data = con.execute(f"SELECT * FROM {table_name}").fetchall()
 
 def main():
   response_data = fetch_data_from_posthog()
@@ -146,6 +172,8 @@ def main():
 
   display_data_with_streamlit(df)
 
+# Insert the processed data into the DuckDB database
+  data_to_duckdb(df)
 
 if __name__ == "__main__":
   main()
