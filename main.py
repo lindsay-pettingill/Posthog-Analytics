@@ -12,60 +12,71 @@ HOGQL_API_KEY = os.environ['hogql_api']
 GOOGLE_SHEETS_API = os.environ['google_sheets']
 PROJECT_ID = os.environ['project_id']
 
+
 def fetch_data_from_posthog():
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {HOGQL_API_KEY}",
-    }
+  headers = {
+      "Content-Type": "application/json",
+      "Authorization": f"Bearer {HOGQL_API_KEY}",
+  }
 
-    data = {
-        "query": {
-            "kind": "HogQLQuery",
-            "query": "SELECT * FROM events where toDate(timestamp) = yesterday() LIMIT 10000000"
-        }
-    }
+  data = {
+      "query": {
+          "kind":
+          "HogQLQuery",
+          "query":
+          "SELECT * FROM events where toDate(timestamp) = yesterday() LIMIT 10000000"
+      }
+  }
 
-    response = requests.post(
-        f"https://app.posthog.com/api/projects/{PROJECT_ID}/query", 
-        headers=headers, 
-        json=data,
-    )
+  response = requests.post(
+      f"https://app.posthog.com/api/projects/{PROJECT_ID}/query",
+      headers=headers,
+      json=data,
+  )
 
-    if response.status_code != 200:
-        print("Failed to fetch data:", response.status_code, response.text)
-        return None
+  if response.status_code != 200:
+    print("Failed to fetch data:", response.status_code, response.text)
+    return None
 
-    return response.json()
+  return response.json()
+
 
 def initialize_google_sheets():
-    service_account_info = json.loads(GOOGLE_SHEETS_API)
-    credentials = service_account.Credentials.from_service_account_info(service_account_info)
+  service_account_info = json.loads(GOOGLE_SHEETS_API)
+  credentials = service_account.Credentials.from_service_account_info(
+      service_account_info)
 
-    scope = ['https://spreadsheets.google.com/feeds','https://www.googleapis.com/auth/drive']
-    creds = credentials.with_scopes(scope)
-    client = gspread.authorize(creds)
+  scope = [
+      'https://spreadsheets.google.com/feeds',
+      'https://www.googleapis.com/auth/drive'
+  ]
+  creds = credentials.with_scopes(scope)
+  client = gspread.authorize(creds)
 
-    return client
+  return client
+
 
 def append_data_to_worksheet(client, df):
-    spreadsheet = client.open('posthog_analytics_sheet')
-    worksheet = spreadsheet.worksheet('analytics_data')
-    df_values = df.values.tolist()
-    worksheet.append_rows(df_values)
+  spreadsheet = client.open('posthog_analytics_sheet')
+  worksheet = spreadsheet.worksheet('analytics_data')
+  df_values = df.values.tolist()
+  worksheet.append_rows(df_values)
+
 
 def process_properties_column(df):
-    def safe_json_loads(s):
-        try:
-            return json.loads(s) if not isinstance(s, dict) else s
-        except ValueError:
-            return {}
 
-    properties_dicts = df['properties'].apply(safe_json_loads)
-    properties_df = pd.json_normalize(properties_dicts)
-    properties_df = properties_df.drop(columns=['distinct_id']) 
-    properties_df = properties_df.rename(columns=lambda x: x.replace('$', ''))
+  def safe_json_loads(s):
+    try:
+      return json.loads(s) if not isinstance(s, dict) else s
+    except ValueError:
+      return {}
 
-    return pd.concat([df, properties_df], axis=1).drop(columns=['properties'])
+  properties_dicts = df['properties'].apply(safe_json_loads)
+  properties_df = pd.json_normalize(properties_dicts)
+  properties_df = properties_df.drop(columns=['distinct_id'])
+  properties_df = properties_df.rename(columns=lambda x: x.replace('$', ''))
+
+  return pd.concat([df, properties_df], axis=1).drop(columns=['properties'])
 
 
 def display_data_with_streamlit(df):
@@ -76,7 +87,8 @@ def display_data_with_streamlit(df):
   # You can add more interactive widgets here depending on what you want to achieve
   # For example, a simple button to refresh data
   if st.button('Refresh Data'):
-      st.rerun()
+    st.rerun()
+
 
 def fetch_and_process_sheet_data(client):
   spreadsheet = client.open('posthog_analytics_sheet')
@@ -87,23 +99,53 @@ def fetch_and_process_sheet_data(client):
   df = df.iloc[1:]
   df.reset_index(drop=True, inplace=True)
   return process_properties_column(df)
-  
+
+
+  # Function to map pandas data types to SQL data types
+def generate_create_table_statement(df, table_name="analytics_data"):
+  # Function to map pandas data types to SQL data types
+  def pandas_type_to_sql(pandas_type):
+    if pandas_type == 'object':
+      return 'VARCHAR'
+    elif 'int' in str(pandas_type):
+      return 'INT'
+    elif 'float' in str(pandas_type):
+      return 'FLOAT'
+    elif pandas_type == 'bool':
+      return 'BOOLEAN'
+    elif 'datetime' in str(pandas_type):
+      return 'TIMESTAMP'
+    else:
+      return 'VARCHAR'  # Default type
+
+  # Constructing the CREATE TABLE statement
+  column_definitions = ', '.join([
+      f"{col} {pandas_type_to_sql(dtype)}" for col, dtype in df.dtypes.items()
+  ])
+  create_table_stmt = f"CREATE TABLE {table_name} ({column_definitions});"
+
+  return create_table_stmt
+
+
 def main():
-    response_data = fetch_data_from_posthog()
-    if not response_data:
-        return
+  response_data = fetch_data_from_posthog()
+  if not response_data:
+    return
 
-    results = response_data['results']
-    columns = response_data['columns']
-    df = pd.DataFrame(results, columns=columns)
+  results = response_data['results']
+  columns = response_data['columns']
+  df = pd.DataFrame(results, columns=columns)
 
-    client = initialize_google_sheets()
-  
-    append_data_to_worksheet(client, df)
+  client = initialize_google_sheets()
 
-    df = fetch_and_process_sheet_data(client)
-    
-    display_data_with_streamlit(df)
+  append_data_to_worksheet(client, df)
+
+  df = fetch_and_process_sheet_data(client)
+
+  generate_create_table_statement(df)
+
+  display_data_with_streamlit(df)
+
 
 if __name__ == "__main__":
-    main()
+  main()
