@@ -86,10 +86,10 @@ def display_data_with_streamlit(df):
   duplicate_cols = df.columns[df.columns.duplicated()].unique()
   print(f"Duplicate Columns (if any): {duplicate_cols}")
   st.title('PostHog Analytics Dashboard')
-  st.write("Here's our raw data fetched and processed:")
+  st.write("Here's our event data, fetched and processed:")
   st.dataframe(df)
   # You can add more interactive widgets here depending on what you want to achieve
-  # For example, a simple button to refresh data
+  st.dataframe()
   if st.button('Refresh Data'):
     st.rerun()
 
@@ -136,7 +136,7 @@ def generate_create_table_statement(df, table_name="event_data"):
   return create_table_stmt
 
 def data_to_duckdb(df, table_name="event_data"): 
-  con = duckdb.connect(database=':memory:', read_only=False)
+  con = duckdb.connect(database='all_data.duckdb', read_only=False)
 
   drop_table_query = f"DROP TABLE IF EXISTS {table_name};"
   con.execute(drop_table_query)
@@ -151,7 +151,9 @@ def data_to_duckdb(df, table_name="event_data"):
     con.execute(insert_query, list(row))
 
   # Fetching all data to verify insertion
-  all_data = con.execute(f"SELECT * FROM {table_name}").fetchall()
+  #all_data = con.execute(f"SELECT * FROM {table_name}").fetchall()
+
+from queries import query_all_data
 
 def main():
   response_data = fetch_data_from_posthog()
@@ -174,6 +176,9 @@ def main():
 
 # Insert the processed data into the DuckDB database
   data_to_duckdb(df)
+  
+  event_data = query_all_data()
+  print("Fetched event data:", event_data)
 
 if __name__ == "__main__":
   main()
