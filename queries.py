@@ -1,9 +1,17 @@
 import duckdb
 
-def query_all_data():
-  con = duckdb.connect(database='all_data.duckdb', read_only=False)
-  result = con.execute("SELECT * FROM event_data limit 1").fetchall()
-  con.close()
+table_name='event_data'
+con = duckdb.connect(database='posthog_data.duckdb', read_only=False)
+
+con.execute(f"CREATE TEMPORARY TABLE all_event_data AS SELECT *, cast(timestamp as date) as ds, rtrim(STR_SPLIT(elements_chain, '=')[2], 'nth-child') AS link_clicked, cast(geoip_latitude as float) as lat, cast(geoip_longitude as float) as lng FROM {table_name}")
+
+def query_latlong():
+  result = con.execute("select count(distinct distinct_id) n, lat, lng from all_event_data where len(concat(lat,lng))>7 group by 2,3").fetchdf()
   return result
 
-## add queries for various plots here, and then import into main.py 
+def query_country():
+  result = con.execute("select count(distinct distinct_id) n, geoip_country_code from all_event_data group by 2 order by 1 desc limit 5").fetchdf()
+  return result
+
+
+
