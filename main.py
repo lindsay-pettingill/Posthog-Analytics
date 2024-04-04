@@ -138,7 +138,7 @@ def data_to_duckdb(df, table_name='event_data'):
   all_data = con.execute(f"SELECT * FROM {table_name}").fetchall()
 
 def display_data_with_streamlit(df):
-  from queries import query_latlong, query_country
+  from queries import query_latlong, query_country, query_daily_traffic
   # Remove or debug duplicate columns
   df = df.loc[:,~df.columns.duplicated()]
   # Or for debugging what the duplicates are:
@@ -155,6 +155,11 @@ def display_data_with_streamlit(df):
   country_data_df = pd.DataFrame(country_data, columns=['n', 'geoip_country_code'])
   st.title('Traffic by Country: Top 5')
   st.dataframe(country_data_df)
+
+  daily_traffic = query_daily_traffic()
+  daily_traffic_df = pd.DataFrame(daily_traffic, columns=['n', 'ds'])
+  st.title('Daily Traffic')
+  st.line_chart(daily_traffic_df, x='ds', y='n')
 
   st.write("Here's our event data, fetched and processed:")
   st.dataframe(df)

@@ -13,5 +13,9 @@ def query_country():
   result = con.execute("select count(distinct distinct_id) n, geoip_country_code from all_event_data group by 2 order by 1 desc limit 5").fetchdf()
   return result
 
+def query_daily_traffic():
+  result = con.execute("select count(distinct distinct_id) n, ds from all_event_data group by 2 order by ds").fetchdf()
+  return result
+
 
 
